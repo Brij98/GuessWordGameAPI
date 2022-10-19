@@ -1,1 +1,2 @@
-app: hypercorn books --reload --debug --bind books.local.gd:$PORT --access-logfile - --error-logfile - --log-level DEBUG
+# app: hypercorn books --reload --debug --bind books.local.gd:$PORT --access-logfile - --error-logfile - --log-level DEBUG
+app: hypercorn server --reload --debug --bind server.local.gd:$PORT --access-logfile - --error-logfile - --log-level DEBUG
