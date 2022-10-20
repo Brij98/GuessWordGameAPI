@@ -18,6 +18,8 @@ import toml
 from quart import Quart, g, request, abort
 from quart_schema import QuartSchema, RequestSchemaValidationError, validate_request
 
+from utils import create_hint
+
 app = Quart(__name__)
 QuartSchema(app)
 
@@ -38,11 +40,6 @@ class UserDTO:
 
 
 @dataclasses.dataclass
-class Word:
-    word: str
-
-
-@dataclasses.dataclass
 class Session:
     sessionId: int
     userId: int
@@ -57,14 +54,6 @@ class Guess:
     guessNo: int
     guess: str
     hint: str
-
-
-@dataclasses.dataclass
-class GuessDTO
-
-
-sessionId: int
-guess: str
 
 
 # Database connections on demand
@@ -94,7 +83,7 @@ async def create_user(data):
         abort(409, e)
 
     user["id"] = id
-    return book, 201, {"msg": "Successfully created account"}
+    return user, 201, {"msg": "Successfully created account"}
 
 
 @app.route("/user/(str:username)/(str:password)", methods=["GET"])
@@ -108,19 +97,40 @@ async def check_password(username: str, password: str):
     except:
         abort(404)
 
-    return 200, {"authenticated", hash(password) == user.password}
+    return 200, {"authenticated": hash(password) == user.password}
 
 
-@auth_required
 @app.route("/session", methods=["POST"])
 async def create_session(data):
-    pass
+    db = await _get_db()
+
+    try:
+        word = await db.fetch_one('SELECT * FROM Word ORDER BY RANDOM() LIMIT 1;')
+
+        await db.execute("""
+        INSERT INTO Sessions VALUES
+        (:userId, :word, 0, 0)
+        """, { 'userId': data.userId, 'word': word })
+    except:
+        abort(400)
+    
+    return 200, { "status": "Session created" }
+    
 
 
-@auth_required
 @app.route("/guess/(int:sessionId)/(str:guess)")
 async def guess(sessionId: int, guess: str):
-    pass
+    db = await _get_db()
+
+    try:
+        session = await db.fetch_one(
+            "SELECT * FROM Session where SessionID = :sessionId", sessionId)
+    except:
+        abort(404)
+
+    session = dataclasses.dataclass(session)
+
+    return 200, create_hint(guess, session.word)
 
 
 @app.route("/books/<int:id>", methods=["GET"])
@@ -132,72 +142,3 @@ async def one_book(id):
     else:
         abort(404)
 
-
-def auth_required(func):
-    @wraps(func)
-    async def wrapper(*args, **kwargs):
-        auth = request.authorization
-        db = _get_db()
-        user = await db.fetch_one(
-            "SELECT * FROM User WHERE username = :username",
-            values={"username": auth.username})
-
-        if (
-            auth is not None and
-            auth.type == "basic" and
-            auth.username == user.username and
-            hash(auth.password) == user.password
-        ):
-            return await func(*args, **kwargs)
-        else:
-            abort(401)
-
-    return wrapper
-
-
-def create_hint(guess: str, word: str) -> str:
-    if guess == word:
-        return 'Guess is correct!'
-
-    if len(guess) != 5:
-        return 'Invalid guess!'
-
-    guess, word = guess.upper(), word.upper()
-    guessSet, wordSet = set(guess), set(word)
-    difference = guessSet.difference(wordSet)
-    states = []
-
-    # 2 is same pos, 1 is wrong pos, 0 is not in word
-    # create array that has state for each char
-    for i in range(5):
-        if guess[i] == word[i]:
-            states.append(2)
-            continue
-
-        if guess[i] in wordSet:
-            states.append(1)
-            continue
-
-        states.append(0)
-
-    hint = []
-
-    for i, state in enumerate(states):
-        char = guess[i]
-        if state == 2 and char in guessSet:
-            hint.append(f"{guess[i]} in {i + 1},")
-            guessSet.remove(guess[i])
-        elif state == 1 and char in guessSet:
-            hint.append(f"{guess[i]} not in {i + 1},")
-            guessSet.remove(guess[i])
-
-    # add hints for chars not in word
-    for char in difference:
-        hint.append(char)
-
-    if len(difference):
-        hint.append("not in word")
-    else:
-        hint[-1] = hint[-1][:-1]
-
-    return " ".join(hint)
