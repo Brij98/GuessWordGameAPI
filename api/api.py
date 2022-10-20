@@ -68,15 +68,30 @@ async def _get_db():
         await db.connect()
     return db
 
+@app.teardown_appcontext
+async def close_connection(exception):
+    db = getattr(g, "_sqlite_db", None)
+    if db is not None:
+        await db.disconnect()
+
+@app.route("/", methods=["GET"])
+def index():
+    return textwrap.dedent(
+        """
+        <h1>Word Guessing Game</h1>
+        <p>A prototype for definitely not Wordle.</p>\n
+        """
+    )
 
 @app.route("/user", methods=["POST"])
-@validate_request(UserDTO)
-async def create_user(data):
+# @validate_request(UserDTO)
+async def create_user(data: UserDTO):
     db = await _get_db()
     # turn input into dict
     user = dataclasses.asdict(data)
     # hash password
     user["password"] = hash(user["password"])
+    print("pasword hashed")
     try:
         id = await db.execute("INSERT INTO Users VALUES(:username, :password)", user)
     except sqlite3.IntegrityError as e:
@@ -93,7 +108,7 @@ async def check_password(username: str, password: str):
     try:
         user = await db.fetch_one(
             "SELECT * FROM User WHERE username = :username",
-            values={"username": username})
+            values={ "username": username })
     except:
         abort(404)
 
@@ -133,12 +148,31 @@ async def guess(sessionId: int, guess: str):
     return 200, create_hint(guess, session.word)
 
 
-@app.route("/books/<int:id>", methods=["GET"])
-async def one_book(id):
+
+@dataclasses.dataclass
+class Book:
+    published: int
+    author: str
+    title: str
+    first_sentence: str
+
+
+@app.route("/books/", methods=["POST"])
+@validate_request(Book)
+async def create_book(data):
     db = await _get_db()
-    book = await db.fetch_one("SELECT * FROM books WHERE id = :id", values={"id": id})
-    if book:
-        return dict(book)
-    else:
-        abort(404)
+    book = dataclasses.asdict(data)
+    try:
+        id = await db.execute(
+            """
+            INSERT INTO books(published, author, title, first_sentence)
+            VALUES(:published, :author, :title, :first_sentence)
+            """,
+            book,
+        )
+    except sqlite3.IntegrityError as e:
+        abort(409, e)
+
+    book["id"] = id
+    return book, 201, {"Location": f"/books/{id}"}
 
