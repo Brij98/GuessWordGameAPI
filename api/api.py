@@ -42,12 +42,12 @@ class UserDTO:
 
 
 @dataclasses.dataclass
-class Session:
+class Game:
     gameId: int
     userId: int
     word: str
     movesCompleted: str
-    sessionCompleted: bool
+    gameCompleted: bool
 
 
 @dataclasses.dataclass
@@ -118,8 +118,8 @@ async def check_password(username: str, password: str):
     return 200, {"authenticated": hash(password) == user.password}
 
 
-@app.route("/session", methods=["POST"])
-async def create_session():
+@app.route("/game", methods=["POST"])
+async def create_game():
     db = await _get_db()
     f = open('correct.json')
     words = json.load(f)
