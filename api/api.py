@@ -150,33 +150,3 @@ async def guess(gameId: int, guess: str):
         abort(400)
 
     return 200, { 'msg': create_hint(guess, game["word"]) }
-
-
-@dataclasses.dataclass
-class Book:
-    published: int
-    author: str
-    title: str
-    first_sentence: str
-
-
-@app.route("/books/", methods=["POST"])
-@validate_request(Book)
-async def create_book(data):
-    db = await _get_db()
-    book = dataclasses.asdict(data)
-    print(book)
-    try:
-        id = await db.execute(
-            """
-            INSERT INTO books(published, author, title, first_sentence)
-            VALUES(:published, :author, :title, :first_sentence)
-            """,
-            book,
-        )
-    except sqlite3.IntegrityError as e:
-        abort(409, e)
-
-    book["id"] = id
-    return book, 201, {"Location": f"/books/{id}"}
-
