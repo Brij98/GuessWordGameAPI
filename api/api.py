@@ -49,6 +49,9 @@ class Game:
     movesCompleted: str
     gameCompleted: bool
 
+@dataclasses.dataclass
+class GameDTO:
+    userId: str
 
 @dataclasses.dataclass
 class Guess:
@@ -119,17 +122,20 @@ async def check_password(username: str, password: str):
 
 
 @app.route("/game", methods=["POST"])
-async def create_game():
+@validate_request(UserDTO)
+async def create_game(data: UserDTO):
     db = await _get_db()
+    user = dataclasses.asdict(data)
+
     f = open('correct.json')
     words = json.load(f)
     f.close()
     word = words[random.randrange(len(words))]
 
     try:
-        id = await db.execute("INSERT INTO Games VALUES (NULL, :word, NULL, NULL)", { 'word': word })
+        id = await db.execute("INSERT INTO Games VALUES (NULL, :userId :word, NULL, NULL)", 
+            values={ 'word': word, 'userId': user['userId'] })
     except Exception as e:
-        print(str(e))
         abort(400)
     
     return { 'id': id }, 201, { "msg": "Successfully created game" }
