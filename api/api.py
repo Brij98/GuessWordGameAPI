@@ -92,7 +92,6 @@ def index():
 async def create_user(data: UserDTO):
     db = await _get_db()
     user = dataclasses.asdict(data)
-    print(user)
     # hash password
     user["password"] = hash(user["password"])
     try:
@@ -104,7 +103,7 @@ async def create_user(data: UserDTO):
     return user, 201, { "msg": "Successfully created account" }
 
 
-@app.route("/user/(str:username)/(str:password)", methods=["GET"])
+@app.route("/user/<string:username>/<string:password>", methods=["GET"])
 async def check_password(username: str, password: str):
     db = await _get_db()
 
@@ -112,8 +111,9 @@ async def check_password(username: str, password: str):
         user = await db.fetch_one(
             "SELECT * FROM Users WHERE username = :username",
             values={ "username": username })
-    except:
-        abort(404)
+    except Exception as e:
+        print(e)
+        abort(400)
 
     return 200, {"authenticated": hash(password) == user.password}
 
