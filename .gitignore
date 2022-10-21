@@ -1,2 +1,4 @@
 .env
 venv/
+api/__pycache__/
+api/var/

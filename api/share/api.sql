@@ -1,26 +1,31 @@
--- $ sqlite3 ./var/books.db < ./share/books.sql
+-- $ sqlite3 ./var/api.db < ./share/api.sql
 
 PRAGMA foreign_keys=OFF;
 BEGIN TRANSACTION;
-CREATE TABLE Users (
-Id INTEGER PRIMARY KEY AUTOINCREMENT,
-username VARCHAR(255) NOT NULL,
-password VARCHAR(255) NOT NULL
+CREATE TABLE IF NOT EXISTS Users (
+  Id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL,
+  password INTEGER NOT NULL
 );
+
 INSERT INTO Users VALUES(1,'John','pass01');
 INSERT INTO Users VALUES(2,'Sam','pass02');
-CREATE TABLE Words (
-word VARCHAR(50) PRIMARY KEY
+
+CREATE TABLE IF NOT EXISTS Games (
+  GameId INTEGER PRIMARY KEY AUTOINCREMENT,
+  Word TEXT NOT NULL,
+  MovesCompleted INTEGER DEFAULT 0,
+  GameCompleted INTEGER DEFAULT 0
 );
-CREATE TABLE Sessions (
-SessionId INTEGER PRIMARY KEY AUTOINCREMENT,
-UserId INTEGER NOT NULL,
-Word VARCHAR(50) NOT NULL,
-MovesCompleted INTEGER DEFAULT 0,
-SessionCompleted INTEGER DEFAULT 0,
-FOREIGN KEY(UserId) REFERENCES Users(Id),
-FOREIGN KEY(Word) REFERENCES Words(word)
+
+CREATE TABLE IF NOT EXISTS Guesses (
+  GuessId INTEGER PRIMARY KEY AUTOINCREMENT,
+  GameId INTEGER NOT NULL,
+  Guess TEXT,
+  Hint TEXT NOT NULL,
+  FOREIGN KEY(GameId) REFERENCES Games(GameId)
 );
+
 DELETE FROM sqlite_sequence;
-INSERT INTO sqlite_sequence VALUES('Users',2);
+INSERT INTO sqlite_sequence VALUES('Users', 2);
 COMMIT;

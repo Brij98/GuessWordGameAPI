@@ -8,6 +8,8 @@ from code import interact
 import collections
 import dataclasses
 from functools import wraps
+import json
+import random
 import sqlite3
 import textwrap
 from typing import List
@@ -41,7 +43,7 @@ class UserDTO:
 
 @dataclasses.dataclass
 class Session:
-    sessionId: int
+    gameId: int
     userId: int
     word: str
     movesCompleted: str
@@ -50,7 +52,7 @@ class Session:
 
 @dataclasses.dataclass
 class Guess:
-    sessionId: int
+    gameId: int
     guessNo: int
     guess: str
     hint: str
@@ -74,6 +76,7 @@ async def close_connection(exception):
     if db is not None:
         await db.disconnect()
 
+
 @app.route("/", methods=["GET"])
 def index():
     return textwrap.dedent(
@@ -83,22 +86,22 @@ def index():
         """
     )
 
+
 @app.route("/user", methods=["POST"])
-# @validate_request(UserDTO)
+@validate_request(UserDTO)
 async def create_user(data: UserDTO):
     db = await _get_db()
-    # turn input into dict
     user = dataclasses.asdict(data)
+    print(user)
     # hash password
     user["password"] = hash(user["password"])
-    print("pasword hashed")
     try:
-        id = await db.execute("INSERT INTO Users VALUES(:username, :password)", user)
+        id = await db.execute("INSERT INTO Users VALUES(NULL, :username, :password)", user)
     except sqlite3.IntegrityError as e:
         abort(409, e)
 
     user["id"] = id
-    return user, 201, {"msg": "Successfully created account"}
+    return user, 201, { "msg": "Successfully created account" }
 
 
 @app.route("/user/(str:username)/(str:password)", methods=["GET"])
@@ -107,7 +110,7 @@ async def check_password(username: str, password: str):
 
     try:
         user = await db.fetch_one(
-            "SELECT * FROM User WHERE username = :username",
+            "SELECT * FROM Users WHERE username = :username",
             values={ "username": username })
     except:
         abort(404)
@@ -116,37 +119,37 @@ async def check_password(username: str, password: str):
 
 
 @app.route("/session", methods=["POST"])
-async def create_session(data):
+async def create_session():
     db = await _get_db()
+    f = open('correct.json')
+    words = json.load(f)
+    f.close()
+    word = words[random.randrange(len(words))]
 
     try:
-        word = await db.fetch_one('SELECT * FROM Word ORDER BY RANDOM() LIMIT 1;')
-
-        await db.execute("""
-        INSERT INTO Sessions VALUES
-        (:userId, :word, 0, 0)
-        """, { 'userId': data.userId, 'word': word })
-    except:
+        id = await db.execute("INSERT INTO Games VALUES (NULL, :word, NULL, NULL)", { 'word': word })
+    except Exception as e:
+        print(str(e))
         abort(400)
     
-    return 200, { "status": "Session created" }
-    
+    return { 'id': id }, 201, { "msg": "Successfully created game" }
 
 
-@app.route("/guess/(int:sessionId)/(str:guess)")
-async def guess(sessionId: int, guess: str):
+
+@app.route("/guess/<int:gameId>/<string:guess>", methods=["GET"])
+async def guess(gameId: int, guess: str):
     db = await _get_db()
 
     try:
-        session = await db.fetch_one(
-            "SELECT * FROM Session where SessionID = :sessionId", sessionId)
+        game = await db.fetch_one(
+            "SELECT * FROM Games WHERE GameId = :gameId",
+            values={ "gameId": gameId })
+        # game = dataclasses.dataclass(game)
+        print(game)
     except:
-        abort(404)
+        abort(400)
 
-    session = dataclasses.dataclass(session)
-
-    return 200, create_hint(guess, session.word)
-
+    return 200, { 'msg': create_hint(guess, game["word"]) }
 
 
 @dataclasses.dataclass
@@ -162,6 +165,7 @@ class Book:
 async def create_book(data):
     db = await _get_db()
     book = dataclasses.asdict(data)
+    print(book)
     try:
         id = await db.execute(
             """
