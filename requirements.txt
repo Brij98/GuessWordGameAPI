@@ -1,0 +1,6 @@
+databases[aiosqlite]
+quart-schema
+quart[dotenv]
+click
+markupsafe
+Jinja2

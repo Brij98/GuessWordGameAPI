@@ -1,3 +1,3 @@
 #!/bin/sh
 
-sqlite3 ./var/books.db < ./share/books.sql
+sqlite3 ./var/api.db < ./share/api.sql

@@ -8,6 +8,8 @@ from code import interact
 import collections
 import dataclasses
 from functools import wraps
+import json
+import random
 import sqlite3
 import textwrap
 from typing import List
@@ -17,6 +19,8 @@ import toml
 
 from quart import Quart, g, request, abort
 from quart_schema import QuartSchema, RequestSchemaValidationError, validate_request
+
+from utils import create_hint
 
 app = Quart(__name__)
 QuartSchema(app)
@@ -38,33 +42,23 @@ class UserDTO:
 
 
 @dataclasses.dataclass
-class Word:
-    word: str
-
-
-@dataclasses.dataclass
-class Session:
-    sessionId: int
+class Game:
+    gameId: int
     userId: int
     word: str
     movesCompleted: str
-    sessionCompleted: bool
+    gameCompleted: bool
 
+@dataclasses.dataclass
+class GameDTO:
+    userId: str
 
 @dataclasses.dataclass
 class Guess:
-    sessionId: int
+    gameId: int
     guessNo: int
     guess: str
     hint: str
-
-
-@dataclasses.dataclass
-class GuessDTO
-
-
-sessionId: int
-guess: str
 
 
 # Database connections on demand
@@ -79,125 +73,86 @@ async def _get_db():
         await db.connect()
     return db
 
+@app.teardown_appcontext
+async def close_connection(exception):
+    db = getattr(g, "_sqlite_db", None)
+    if db is not None:
+        await db.disconnect()
+
+
+@app.route("/", methods=["GET"])
+def index():
+    return textwrap.dedent(
+        """
+        <h1>Word Guessing Game</h1>
+        <p>A prototype for definitely not Wordle.</p>\n
+        """
+    )
+
 
 @app.route("/user", methods=["POST"])
 @validate_request(UserDTO)
-async def create_user(data):
+async def create_user(data: UserDTO):
     db = await _get_db()
-    # turn input into dict
     user = dataclasses.asdict(data)
     # hash password
     user["password"] = hash(user["password"])
     try:
-        id = await db.execute("INSERT INTO Users VALUES(:username, :password)", user)
+        id = await db.execute("INSERT INTO Users VALUES(NULL, :username, :password)", user)
     except sqlite3.IntegrityError as e:
         abort(409, e)
 
     user["id"] = id
-    return book, 201, {"msg": "Successfully created account"}
+    return user, 201, { "msg": "Successfully created account" }
 
 
-@app.route("/user/(str:username)/(str:password)", methods=["GET"])
+@app.route("/user/<string:username>/<string:password>", methods=["GET"])
 async def check_password(username: str, password: str):
     db = await _get_db()
 
     try:
         user = await db.fetch_one(
-            "SELECT * FROM User WHERE username = :username",
-            values={"username": username})
-    except:
-        abort(404)
+            "SELECT * FROM Users WHERE username = :username",
+            values={ "username": username })
+    except Exception as e:
+        print(e)
+        abort(400)
 
-    return 200, {"authenticated", hash(password) == user.password}
-
-
-@auth_required
-@app.route("/session", methods=["POST"])
-async def create_session(data):
-    pass
+    return 200, {"authenticated": hash(password) == user.password}
 
 
-@auth_required
-@app.route("/guess/(int:sessionId)/(str:guess)")
-async def guess(sessionId: int, guess: str):
-    pass
-
-
-@app.route("/books/<int:id>", methods=["GET"])
-async def one_book(id):
+@app.route("/game", methods=["POST"])
+@validate_request(UserDTO)
+async def create_game(data: UserDTO):
     db = await _get_db()
-    book = await db.fetch_one("SELECT * FROM books WHERE id = :id", values={"id": id})
-    if book:
-        return dict(book)
-    else:
-        abort(404)
+    user = dataclasses.asdict(data)
+
+    f = open('correct.json')
+    words = json.load(f)
+    f.close()
+    word = words[random.randrange(len(words))]
+
+    try:
+        id = await db.execute("INSERT INTO Games VALUES (NULL, :userId :word, NULL, NULL)", 
+            values={ 'word': word, 'userId': user['userId'] })
+    except Exception as e:
+        abort(400)
+    
+    return { 'id': id }, 201, { "msg": "Successfully created game" }
 
 
-def auth_required(func):
-    @wraps(func)
-    async def wrapper(*args, **kwargs):
-        auth = request.authorization
-        db = _get_db()
-        user = await db.fetch_one(
-            "SELECT * FROM User WHERE username = :username",
-            values={"username": auth.username})
 
-        if (
-            auth is not None and
-            auth.type == "basic" and
-            auth.username == user.username and
-            hash(auth.password) == user.password
-        ):
-            return await func(*args, **kwargs)
-        else:
-            abort(401)
+@app.route("/guess/<int:gameId>/<string:guess>", methods=["GET"])
+async def guess(gameId: int, guess: str):
+    db = await _get_db()
 
-    return wrapper
+    try:
+        game = await db.fetch_one(
+            "SELECT * FROM Games WHERE GameId = :gameId",
+            values={ "gameId": gameId })
+        # game = dataclasses.dataclass(game)
+        print(game)
+    except:
+        abort(400)
 
-
-def create_hint(guess: str, word: str) -> str:
-    if guess == word:
-        return 'Guess is correct!'
-
-    if len(guess) != 5:
-        return 'Invalid guess!'
-
-    guess, word = guess.upper(), word.upper()
-    guessSet, wordSet = set(guess), set(word)
-    difference = guessSet.difference(wordSet)
-    states = []
-
-    # 2 is same pos, 1 is wrong pos, 0 is not in word
-    # create array that has state for each char
-    for i in range(5):
-        if guess[i] == word[i]:
-            states.append(2)
-            continue
-
-        if guess[i] in wordSet:
-            states.append(1)
-            continue
-
-        states.append(0)
-
-    hint = []
-
-    for i, state in enumerate(states):
-        char = guess[i]
-        if state == 2 and char in guessSet:
-            hint.append(f"{guess[i]} in {i + 1},")
-            guessSet.remove(guess[i])
-        elif state == 1 and char in guessSet:
-            hint.append(f"{guess[i]} not in {i + 1},")
-            guessSet.remove(guess[i])
-
-    # add hints for chars not in word
-    for char in difference:
-        hint.append(char)
-
-    if len(difference):
-        hint.append("not in word")
-    else:
-        hint[-1] = hint[-1][:-1]
-
-    return " ".join(hint)
+    return 200, { 'msg': create_hint(guess, game["word"]) }
