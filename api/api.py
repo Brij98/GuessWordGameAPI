@@ -4,6 +4,7 @@
 # <https://programminghistorian.org/en/lessons/creating-apis-with-python-and-flask>.
 #
 
+from cmath import e
 from code import interact
 import collections
 import dataclasses
@@ -21,6 +22,7 @@ from quart import Quart, g, request, abort
 from quart_schema import QuartSchema, RequestSchemaValidationError, validate_request
 
 from utils import create_hint
+import json
 
 app = Quart(__name__)
 QuartSchema(app)
@@ -79,6 +81,32 @@ async def close_connection(exception):
     if db is not None:
         await db.disconnect()
 
+@app.route("/insert-words", methods=["POST"])
+async def insertIntoTable():
+    db = await _get_db()
+
+    wordsCnt = await db.fetch_val(
+        '''
+        SELECT COUNT(word) FROM Words
+        '''
+    )
+    if wordsCnt < 2:
+
+        try:
+            inputFile = open('correct.json')
+            jsonArray = json.load(inputFile)
+            for word in jsonArray:
+                
+                i = await db.execute(
+                    '''
+                        INSERT INTO Words (word) VALUES (:word)
+                    ''', values={"word":word}
+                )  
+        except:
+            abort(500)
+        return {"Words stored successfully": i}, 200
+    else:
+        return {"msg":"words already exists in the table"}, 409
 
 @app.route("/", methods=["GET"])
 def index():
@@ -118,8 +146,7 @@ async def check_password(username: str, password: str):
         print(e)
         abort(400)
 
-    return 200, {"authenticated": hash(password) == user.password}
-
+    return {"authenticated": hash(password) == user.password}, 200
 
 @app.route("/game", methods=["POST"])
 @validate_request(UserDTO)
