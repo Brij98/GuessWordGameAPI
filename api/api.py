@@ -7,12 +7,10 @@
 from code import interact
 import collections
 import dataclasses
-from functools import wraps
 import json
 import random
 import sqlite3
 import textwrap
-from typing import List
 
 import databases
 import toml
@@ -49,9 +47,16 @@ class Game:
     movesCompleted: str
     gameCompleted: bool
 
+
 @dataclasses.dataclass
 class GameDTO:
     userId: str
+
+
+@dataclasses.dataclass
+class GetGameDTO:
+    gameId: str
+
 
 @dataclasses.dataclass
 class Guess:
@@ -72,6 +77,7 @@ async def _get_db():
         db = g._sqlite_db = databases.Database(app.config["DATABASES"]["URL"])
         await db.connect()
     return db
+
 
 @app.teardown_appcontext
 async def close_connection(exception):
@@ -103,7 +109,7 @@ async def create_user(data: UserDTO):
         abort(409, e)
 
     user["id"] = id
-    return user, 201, { "msg": "Successfully created account" }
+    return user, 201, {"msg": "Successfully created account"}
 
 
 @app.route("/user/<string:username>/<string:password>", methods=["GET"])
@@ -111,9 +117,9 @@ async def check_password(username: str, password: str):
     db = await _get_db()
 
     try:
-        user = await db.fetch_one(
+        user: User = await db.fetch_one(
             "SELECT * FROM Users WHERE username = :username",
-            values={ "username": username })
+            values={"username": username})
     except Exception as e:
         print(e)
         abort(400)
@@ -131,15 +137,52 @@ async def create_game(data: UserDTO):
     words = json.load(f)
     f.close()
     word = words[random.randrange(len(words))]
+    print(data)
+    print(user)
+    try:
+        id = await db.execute("INSERT INTO Games VALUES (NULL, :userId :word, NULL, NULL)",
+                              values={'word': word, 'userId': user['userId']})
+    except Exception as e:
+        print(e)
+        abort(400)
+
+    return {'id': id}, 201, {"msg": "Successfully created game"}
+
+
+@app.route("/game/<int:id>", methods=["GET"])
+@validate_request(GetGameDTO)
+async def get_game(data: GetGameDTO):
+    db = await _get_db()
 
     try:
-        id = await db.execute("INSERT INTO Games VALUES (NULL, :userId :word, NULL, NULL)", 
-            values={ 'word': word, 'userId': user['userId'] })
-    except Exception as e:
-        abort(400)
-    
-    return { 'id': id }, 201, { "msg": "Successfully created game" }
+        game = await db.execute("SELECT * FROM Games WHERE GameId = :gameId",
+                                values={'gameId': data.gameId})
 
+        guesses = await db.fetch_all("SELECT * FROM Guesses WHERE GameId = :gameId",
+                                     values={'gameId': data.gameId})
+
+        return 200, {'game': game, 'guesses': guesses}
+    except:
+        abort(400)
+
+
+@app.route("/game", methods=["GET"])
+@validate_request(GetGameDTO)
+async def get_games():
+    db = await _get_db()
+    userId = request.args.get("userId")
+
+    try:
+        games = await db.fetch_all(
+            "SELECT * FROM Games WHERE UserId = :userId",
+            values={"userId": userId})
+
+        for i in range(len(games)):
+            games[i]["Word"] = ""
+
+        return 200, games
+    except:
+        abort(400)
 
 
 @app.route("/guess/<int:gameId>/<string:guess>", methods=["GET"])
@@ -147,12 +190,51 @@ async def guess(gameId: int, guess: str):
     db = await _get_db()
 
     try:
-        game = await db.fetch_one(
+        game: Game = await db.fetch_one(
             "SELECT * FROM Games WHERE GameId = :gameId",
-            values={ "gameId": gameId })
-        # game = dataclasses.dataclass(game)
-        print(game)
+            values={"gameId": gameId})
+
+        if game.gameCompleted:
+            return 200, {'msg': 'Game already completed!'}
+
+        if guess == game.word:
+            game.movesCompleted += 1
+            game.gameCompleted = 1
+            await db.execute(
+                """
+                UPDATE Games SET MovesCompleted = :moves, GameCompleted = :completed
+                WHERE GameId = :gameId
+                """,
+                values={'moves': game.movesCompleted, 'completed': game.gameCompleted, 'gameId': game.gameId})
+            return 200, {'msg': 'You win!'}
+
+        if await is_valid_guess(guess):
+            game.movesCompleted += 1
+            hint = create_hint(guess, game.word)
+
+            await db.execute("INSERT INTO Gueses VALUES(NULL, :gameId, :guess, :hint)",
+                             values={'gameId': game.gameId, 'guess': guess, 'hint': hint})
+
+            if game.movesCompleted >= 6:
+                game.gameCompleted = 1
+
+            await db.execute(
+                """
+                UPDATE Games SET MovesCompleted = :moves, GameCompleted = :completed
+                WHERE GameId = :gameId
+                """,
+                values={'moves': game.movesCompleted, 'completed': game.gameCompleted, 'gameId': game.gameId})
+
+            return 200, {'msg', hint}
+
     except:
         abort(400)
 
-    return 200, { 'msg': create_hint(guess, game["word"]) }
+    return 200, {'msg': 'Invalid guess, please try again'}
+
+
+async def is_valid_guess(guess: str):
+    db = _get_db()
+    words = await db.fetch_all("SELECT * FROM Words WHERE Word = :guess", values={'guess': guess})
+
+    return len(words) > 0
