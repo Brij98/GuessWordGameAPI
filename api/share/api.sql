@@ -1,11 +1,11 @@
 -- $ sqlite3 ./var/api.db < ./share/api.sql
 
-PRAGMA foreign_keys=OFF;
+PRAGMA foreign_keys=ON;
 BEGIN TRANSACTION;
 CREATE TABLE IF NOT EXISTS Users (
   Id INTEGER PRIMARY KEY AUTOINCREMENT,
-  username TEXT NOT NULL,
-  password INTEGER NOT NULL
+  username TEXT UNIQUE NOT NULL,
+  password TEXT NOT NULL
 );
 
 INSERT INTO Users VALUES(1,'John','pass01');
@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS Guesses (
 );
 
 CREATE TABLE IF NOT EXISTS Words (
-  Word TEXT PRIMARY KEY
+  Word TEXT PRIMARY KEY,
+  Correct INTEGER NOT NULL
 );
 
 DELETE FROM sqlite_sequence;
