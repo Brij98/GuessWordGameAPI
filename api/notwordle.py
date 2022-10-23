@@ -13,10 +13,11 @@ import sqlite3
 import textwrap
 
 import databases
+import quart
 import toml
 
 from quart import Quart, g, request, abort
-from quart_schema import QuartSchema, RequestSchemaValidationError, validate_request
+from quart_schema import QuartSchema, RequestSchemaValidationError, tag, validate_request
 
 from utils import create_hint, hash_password, verify_password
 
@@ -86,17 +87,8 @@ async def close_connection(exception):
         await db.disconnect()
 
 
-@app.route("/", methods=["GET"])
-def index():
-    return textwrap.dedent(
-        """
-        <h1>Word Guessing Game</h1>
-        <p>A prototype for definitely not Wordle.</p>\n
-        """
-    )
-
-
 @app.route("/user", methods=["POST"])
+@tag(["User"])
 @validate_request(UserDTO)
 async def create_user(data: UserDTO):
     db = await _get_db()
@@ -112,23 +104,26 @@ async def create_user(data: UserDTO):
     return user, 201, {"msg": "Successfully created account"}
 
 
-@app.route("/user/<string:username>/<string:password>", methods=["GET"])
-async def check_password(username: str, password: str):
+@app.route("/user", methods=["GET"])
+@tag(["User"])
+async def check_password():
     db = await _get_db()
+    auth = request.authorization
 
     try:
         (userId, dbUsername, dbPassword) = await db.fetch_one(
             "SELECT * FROM Users WHERE username = :username",
-            values={"username": username})
+            values={"username": auth.username})
         print(dbPassword)
     except Exception as e:
         print(e)
         abort(400)
 
-    return {"authenticated": verify_password(password, dbPassword)}, 200
+    return {"authenticated": verify_password(auth.password, dbPassword)}, 200
 
 
 @app.route("/game", methods=["POST"])
+@tag(["Game"])
 @validate_request(GameDTO)
 async def create_game(data: GameDTO):
     db = await _get_db()
@@ -138,7 +133,7 @@ async def create_game(data: GameDTO):
         word = await db.fetch_one("SELECT Word FROM Words WHERE Correct = 1 ORDER BY RANDOM()")
         print(word)
         id = await db.execute("INSERT INTO Games VALUES(NULL, :userId, :word, 0, 0)",
-                              values={'word': word, 'userId': int(user['userId'])})
+                              values={'word': word[0], 'userId': int(user['userId'])})
     except Exception as e:
         print(e)
         abort(400)
@@ -147,6 +142,7 @@ async def create_game(data: GameDTO):
 
 
 @app.route("/game/<int:id>", methods=["GET"])
+@tag(["Game"])
 async def get_game(id: int):
     db = await _get_db()
     try:
@@ -160,7 +156,7 @@ async def get_game(id: int):
         guesses = []
         for result in results:
             (id, gameId, guess, hint) = result
-            guesses.append({'id': id, 'GameId': gameId, 'guess': guess, 'hint': hint})
+            guesses.append({'id': id, 'gameId': gameId, 'guess': guess, 'hint': hint})
 
         return {'game': {'id': id, 'userId': userId, 'moves': moves, 'completed': bool(completed)},
                 'guesses': guesses}, 200
@@ -169,16 +165,17 @@ async def get_game(id: int):
         abort(400)
 
 
-@app.route("/game", methods=["GET"])
-async def get_games():
+@app.route("/game/user/<int:userId>", methods=["GET"])
+@tag(["Game"])
+async def get_games(userId: int):
     db = await _get_db()
-    userId = request.args.get("userId")
+    # userId = request.args.get("userId")
     print(userId)
     try:
         results = await db.fetch_all(
-            "SELECT * FROM Games WHERE UserId = :userId",
+            "SELECT * FROM Games WHERE UserId = :userId AND GameCompleted = 0",
             values={"userId": userId})
-        print(results)
+        
         games = []
         for result in results:
             (id, userId, word, moves, completed) = result
@@ -190,6 +187,7 @@ async def get_games():
 
 
 @app.route("/guess/<int:gameId>/<string:guess>", methods=["GET"])
+@tag(["Game"])
 async def guess(gameId: int, guess: str):
     db = await _get_db()
 
@@ -235,7 +233,7 @@ async def guess(gameId: int, guess: str):
                 """,
                 values={'moves': moves, 'completed': completed, 'gameId': id})
 
-            return {'msg': hint}, 200
+            return {'msg': hint, 'moves_remaining': 6 - moves}, 200
 
     except Exception as e:
         print(e)

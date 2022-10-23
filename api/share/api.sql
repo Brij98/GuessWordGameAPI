@@ -8,9 +8,6 @@ CREATE TABLE IF NOT EXISTS Users (
   password TEXT NOT NULL
 );
 
-INSERT INTO Users VALUES(1,'John','pass01');
-INSERT INTO Users VALUES(2,'Sam','pass02');
-
 CREATE TABLE IF NOT EXISTS Games (
   GameId INTEGER PRIMARY KEY AUTOINCREMENT,
   UserId INTEGER NOT NULL,
@@ -34,6 +31,4 @@ CREATE TABLE IF NOT EXISTS Words (
   Correct INTEGER NOT NULL
 );
 
-DELETE FROM sqlite_sequence;
-INSERT INTO sqlite_sequence VALUES('Users', 2);
 COMMIT;
